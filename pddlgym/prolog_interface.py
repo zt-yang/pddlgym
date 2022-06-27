@@ -5,26 +5,58 @@ from collections import defaultdict
 import subprocess
 import sys
 import tempfile
+import copy
 
+MINUS = '1111111'
+AT = ''
+
+def get_type(var):
+    if '=' in var: var = var[:var.index('=')]
+    var = ''.join([i for i in var if not i.isdigit() and i != '?'])
+    return var
 
 class PrologInterface:
     """
     """
     def __init__(self, kb, conds, max_assignment_count=2, timeout=2, 
-                 allow_redundant_variables=True, constants=None):
+                 allow_redundant_variables=True, constants=None,
+                 pred=None, verbose=False, INFER_TYPING=False):
+
+        ## ------ YANG added INFERTYPING to reduce inference time ----
+        if pred != None:
+            variables = copy.deepcopy(pred.param_names)
+            if hasattr(pred.body, 'variables'):  ## if Exist in structure
+                variables += [n.name for n in pred.body.variables]
+            self._types = set([get_type(var) for var in variables])
+        else:
+            self._types = set([])
+            INFER_TYPING = False
+
+        def DISCARD_ATOM(atom):
+            if INFER_TYPING and '=' in atom and get_type(atom) not in self._types:
+                return True
+            return False
+        self.DISCARD_ATOM = DISCARD_ATOM
+        ## ------------------------------------------------------------
+
         if not isinstance(conds, list):
             conds = [conds]
         # Preprocess negative literals into renamed positive literals
-        kb, conds = self._preprocess_negative_literals(kb, conds)
+        kb, conds = self._preprocess_negative_literals(kb, conds,
+                            verbose=verbose, DISCARD_ATOM=self.DISCARD_ATOM)
         self._kb = kb
         self._conds = conds
         self._cond_lits = self._get_lits_from_conds(conds)
         self._max_assignment_count = max_assignment_count
         self._allow_redundant_variables = allow_redundant_variables
         self._timeout = timeout
+
+        ## YANG added INFERTYPING to reduce inference time
         self._varnames_to_var = self._create_varname_to_var(self._cond_lits, 
-            lambda x : self._clean_variable_name(x).lower())
-        self._atomname_to_atom = self._create_varname_to_var(self._kb, self._clean_atom_name)
+            lambda x : self._clean_variable_name(x).lower(), self.DISCARD_ATOM)
+        self._atomname_to_atom = self._create_varname_to_var(\
+            self._kb, self._clean_atom_name, self.DISCARD_ATOM)
+
         self._type_to_atomnames = defaultdict(list)
         for atom_name, atom in self._atomname_to_atom.items():
             self._type_to_atomnames[atom.var_type].append(atom_name)
@@ -33,8 +65,11 @@ class PrologInterface:
         # print(self._prolog_str)
         # import ipdb; ipdb.set_trace()
 
+        self._pred = pred  ## added by Yang for naming the .pl file in /temp/ folder
+        self.verbose = verbose
+
     @classmethod
-    def _preprocess_negative_literals(cls, kb, conds):
+    def _preprocess_negative_literals(cls, kb, conds, verbose=False, DISCARD_ATOM=None):
         # Check for negated quantifiers, which we do not handle
         if any((isinstance(c, Exists) or isinstance(c, ForAll)) and c.is_negative \
                 for c in conds):
@@ -46,6 +81,10 @@ class PrologInterface:
                 negated_predicates.add(cond.predicate)
         if len(negated_predicates) == 0:
             return kb, conds
+        else:  ## YANG: ignore them
+            # print('_preprocess_negative_literals | ignore negated predicates', negated_predicates)
+            return kb, [l for l in cls._get_lits_from_conds(conds) if not l.is_negative]
+
         # Start the new kb and conds
         kb = [lit for lit in kb]
         conds = [c for c in conds]
@@ -62,6 +101,12 @@ class PrologInterface:
             negated_pred_to_pos_pred[p] = pos_pred
         # TODO pass in objects separately
         objects = { o for lit in kb for o in lit.variables }
+
+        ## --------- Hack added by YANG to resolve the existential crisis -------------
+        if len(conds) == 1 and isinstance(conds[0], Exists):  ## for unsafe...
+            objects = [o for o in objects if not DISCARD_ATOM(o.name)]
+        ## ----------------------------------------------------------------------------
+
         # Get all instantiations of the new positive predicates
         for negated_pred, pos_pred in negated_pred_to_pos_pred.items():
             original_positive_pred = negated_pred.positive
@@ -70,6 +115,10 @@ class PrologInterface:
                 arity=pos_pred.arity,
                 var_types=pos_pred.var_types,
                 allow_duplicates=True):
+                ## --------- added by YANG to resolve the existential crisis ----------
+                # if verbose:
+                #     print('_preprocess_negative_literals', conds, objs)
+                ## --------------------------------------------------------------------
                 # Check whether the positive version is in the kb
                 if original_positive_pred(*objs) in kb:
                     continue
@@ -116,12 +165,12 @@ class PrologInterface:
         raise NotImplementedError()
 
     @classmethod
-    def _clean_atom_name(cls, atom_name):
-        return atom_name.lower().replace("-", "_")
+    def _clean_atom_name(cls, atom_name):  ## changed by YANG because _ cause problems for numbers
+        return atom_name.lower().replace("-", MINUS).replace("@", AT)
 
     @classmethod
     def _clean_variable_name(cls, var_name):
-        var_name = var_name.replace("-", "_")
+        var_name = var_name.replace("-", MINUS).replace("@", AT)
         if var_name.startswith("?"):
             return var_name.replace("?", "").capitalize()
         return var_name
@@ -130,27 +179,38 @@ class PrologInterface:
     def _clean_predicate_name(cls, predicate_name):
         if predicate_name == "=":
             return "predeq"
-        return "pred"+predicate_name.lower().replace("-", "_")
+        return "pred"+predicate_name.lower().replace("-", MINUS).replace("@", AT)
 
     @staticmethod
-    def _create_varname_to_var(lits, transformer):
+    def _create_varname_to_var(lits, transformer, DISCARD_ATOM):
         """
         """
         vname_to_v = {}
         for lit in lits:
             for v in lit.variables:
                 vname = transformer(v.name)
+
+                ## ignore those not in the saved types
+                if DISCARD_ATOM(vname):
+                    # print('ignored variable', vname)
+                    continue
+
                 if vname in vname_to_v:
                     assert vname_to_v[vname] == v
                 else:
                     vname_to_v[vname] = v
+                    if ',' in vname:
+                        ## there may be '[12,p0=(0.7,4.9,0.845,0.948),(10,none,3)]'
+                        vname_to_v[vname.replace(', ', '*').replace('t(', '(')] = v
+                        ## there may be 'c648=t(6*4)'
+                        vname_to_v[vname.replace(', ', '*')] = v
         return vname_to_v
 
     def _create_prolog_str(self):
         """
         """
         preamble = self._prolog_preamble(self._conds)
-        type_str = self._prolog_type_str(self._kb)
+        type_str = self._prolog_type_str(self._kb, self.DISCARD_ATOM)
         self._kb_str = self._prolog_kb_str(self._kb)  # can be changed by prolog_goal
         goal_str, variables = self._prolog_goal(self._conds, self._allow_redundant_variables)
         end = self._prolog_end(variables, self._max_assignment_count)
@@ -162,19 +222,23 @@ class PrologInterface:
         """
         kb_str = ""
         for lit in sorted(kb):
+            if lit.is_negative: continue  ## YANG added for notmarker(1) bug
             pred_name = cls._clean_predicate_name(lit.predicate.name)
             atoms = ",".join([cls._clean_atom_name(a) for a in lit.variables])
             kb_str += "\n{}({}).".format(pred_name, atoms)
         return kb_str
 
     @classmethod
-    def _prolog_type_str(cls, kb):
+    def _prolog_type_str(cls, kb, DISCARD_ATOM):
         """
         """
         all_atoms = sorted({ v for lit in kb for v in lit.variables })
         type_str = ""
         for v in sorted(all_atoms, key=lambda v:v.var_type):
             vname = cls._clean_atom_name(v.name)
+            ## ignore those not in the saved types
+            if DISCARD_ATOM(vname):
+                continue
             type_str += "\nistype{}({}).".format(v.var_type, vname)
         return type_str
 
@@ -304,24 +368,60 @@ print_solutions([H|T]) :- write(H), nl, print_solutions(T).
     def _parse_output_line(self, output_line):
         """
         """
-        output_line = output_line[1:-1]
-        if output_line == '':
+        line = output_line[1:-1]
+        if line == '':
             return []
-        return output_line.split(',')
 
-    def run(self):
+        ## e.g. output_line = '12,(10,none,3)', '[12,p0=(0.7,4.9,0.845,0.948),(10,none,3)]'
+        if '(' in line and ')' in line:
+            # found_matched = {}
+            for k in self._atomname_to_atom:
+                if '(' in k and ')' in k and k.replace(' ', '') in line:
+                    tmp = k.replace('t(', '(').replace(', ', '*')
+                    # found_matched[tmp] = k
+                    line = line.replace(k.replace(' ', ''), tmp)
+
+        return line.split(',')
+
+    def run(self, debug=False):
         """
         """
         file = tempfile.NamedTemporaryFile(suffix=".pl")
         tmp_name = file.name
         with open(tmp_name, 'w') as f:
             f.write(self._prolog_str)
+
         timeout_str = "gtimeout" if sys.platform == 'darwin' else "timeout"
         cmd_str = "{} {} swipl {}".format(timeout_str, self._timeout, tmp_name)
+
+        # if self._pred.name in ['closedjoint', 'on']:
+        #     debug = True
+
+        ## -----------------------
+        if debug or self.verbose:
+            import shutil
+            import os
+            from os.path import join, abspath, dirname
+            from datetime import datetime
+
+            now = datetime.now().strftime("%H%M%S")
+            ROOT_DIR = abspath(join(dirname(__file__), os.pardir))
+
+            if self._pred is not None:  ## find facts
+                name = self._pred.name
+            else:  ## find primitive actions
+                name = self._conds[0].predicate.name
+            name = f'{now}_{name}.pl'  ## tmp_name[tmp_name.rfind('/')+1:]
+            save_file = join(ROOT_DIR, '..', 'bullet', 'leap', 'temp', name)
+            shutil.copy(tmp_name, save_file)
+            print(cmd_str.replace(tmp_name, save_file))
+        ## -----------------------
+
         output = subprocess.getoutput(cmd_str)
         if "ERROR" in output or "Warning" in output:
-            import ipdb; ipdb.set_trace()
+            # import ipdb; ipdb.set_trace() ## YANG
             raise Exception("Prolog terminated with an error: \n{}".format(output))
+        if debug: print('finished', name)
         lines = output.split('\n')
         varnames = self._parse_output_line(lines.pop(0))
         vs = [self._varnames_to_var[v] for v in varnames]
@@ -329,9 +429,12 @@ print_solutions([H|T]) :- write(H), nl, print_solutions(T).
         if len(bindings) == 0:
             return []
         assignments = []
-        for binding in bindings:
+        for binding in bindings: # Recover original (typed) atoms
             atomnames = self._parse_output_line(binding)
-            # Recover original (typed) atoms
+            # # debug
+            for v in atomnames:
+                if v not in self._atomname_to_atom:
+                    atomnames = self._parse_output_line(binding)
             atoms = [self._atomname_to_atom[v] for v in atomnames]
             assignment = dict(zip(vs, atoms))
             assignments.append(assignment)

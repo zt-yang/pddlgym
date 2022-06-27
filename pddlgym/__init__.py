@@ -12,8 +12,7 @@ import os
 
 # Save users from having to separately import gym
 def make(*args, **kwargs):
-    # env checker fails since obs is not an numpy array like object
-    return gym.make(*args, disable_env_checker=True, **kwargs)
+    return gym.make(*args, **kwargs)
 
 def register_pddl_env(name, is_test_env, other_args):
     dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "pddl")
@@ -233,8 +232,3 @@ register(
     id='TinyMyopicPOSAR-v0',
     entry_point='pddlgym.custom.searchandrescue:TinyMyopicPOSAREnv',
 )
-
-
-# Ignore certain files for pdoc documentation generation.
-__pdoc__ = {'downward_translate': False, 'procedural_generation': False}
-

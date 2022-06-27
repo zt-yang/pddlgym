@@ -12,7 +12,8 @@ import functools
 def find_satisfying_assignments(kb, conds, variable_sort_fn=None, verbose=False, 
                                 max_assignment_count=2, type_to_parent_types=None,
                                 allow_redundant_variables=True, constants=None,
-                                mode="csp", init_assignments=None):
+                                mode="csp", init_assignments=None,
+                                pred=None, INFER_TYPING=False):
     if mode == "csp":
         return ProofSearchTree(kb,
             allow_redundant_variables=allow_redundant_variables,
@@ -34,8 +35,8 @@ def find_satisfying_assignments(kb, conds, variable_sort_fn=None, verbose=False,
     prolog_interface = PrologInterface(kb, conds,
         max_assignment_count=max_assignment_count,
         allow_redundant_variables=allow_redundant_variables,
-        constants=constants)
-    return prolog_interface.run()
+        constants=constants, pred=pred, verbose=verbose, INFER_TYPING=INFER_TYPING)
+    return prolog_interface.run(debug=False)
 
 def check_goal(state, goal):
     if isinstance(goal, Literal):

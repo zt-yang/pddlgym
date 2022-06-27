@@ -108,7 +108,8 @@ class PDDLParser:
         if string.startswith("(and") and string[4] in (" ", "\n", "("):
             clauses = self._find_all_balanced_expressions(string[4:-1].strip())
             return LiteralConjunction([self._parse_into_literal(clause, params, 
-                                       is_effect=is_effect) for clause in clauses])
+                                       is_effect=is_effect) for clause in clauses \
+                                       if '(increase' not in clause])  ## added by YANG to ignore costs
         if string.startswith("(or") and string[3] in (" ", "\n", "("):
             clauses = self._find_all_balanced_expressions(string[3:-1].strip())
             return LiteralDisjunction([self._parse_into_literal(clause, params,
@@ -123,9 +124,12 @@ class PDDLParser:
         if string.startswith("(forall") and string[7] in (" ", "\n", "("):
             new_binding, clause = self._find_all_balanced_expressions(
                 string[7:-1].strip())
-            new_name, new_type_name = new_binding.strip()[1:-1].split("-", 1)
+            # new_name, new_type_name = new_binding.strip()[1:-1].split("-", 1)
+            # new_name = new_name.strip()
+            # new_type_name = new_type_name.strip()
+            new_name = new_binding.strip()[1:-1]
             new_name = new_name.strip()
-            new_type_name = new_type_name.strip()
+            new_type_name = 'default'
             assert new_name not in params, "ForAll variable {} already exists".format(new_name)
             new_entity_type = self.types[new_type_name]
             new_entity = TypedEntity(new_name, new_entity_type)
@@ -440,8 +444,8 @@ class PDDLDomainParser(PDDLParser, PDDLDomain):
         self.domain_fname = domain_fname
 
         # Read files.
-        with open(domain_fname, "r") as f:
-            self.domain = f.read().lower()
+        with open(domain_fname, "r") as f:  ## `.replace` are added by YANG
+            self.domain = f.read().lower().replace('( ', '(').replace(' )', ')')
 
         # Is this domain probabilistic?
         self.is_probabilistic = ("probabilistic" in self.domain)

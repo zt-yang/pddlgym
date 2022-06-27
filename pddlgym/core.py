@@ -79,7 +79,7 @@ def get_successor_state(state, action, domain, raise_error_on_invalid_action=Fal
 
     # No operator was found
     elif raise_error_on_invalid_action:
-        raise InvalidAction(f"called get_successor_state with invalid action '{action}' for given state")
+        raise InvalidAction()
 
     return state
 
@@ -139,8 +139,9 @@ def _select_operator(state, action, domain, inference_mode="infer",
             mode=inference_mode)
         num_assignments = len(assignments)
         if num_assignments > 0:
-            if require_unique_assignment:
-                assert num_assignments == 1, "Nondeterministic envs not supported"
+            ## YANG: commented out for FORALL
+            # if require_unique_assignment:
+            #     assert num_assignments == 1, "Nondeterministic envs not supported"
             selected_operator = operator
             assignment = assignments[0]
             break
