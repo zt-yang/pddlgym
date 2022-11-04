@@ -68,6 +68,7 @@ class PrologInterface:
         self._pred = pred  ## added by Yang for naming the .pl file in /temp/ folder
         self.verbose = verbose
 
+
     @classmethod
     def _preprocess_negative_literals(cls, kb, conds, verbose=False, DISCARD_ATOM=None):
         # Check for negated quantifiers, which we do not handle
@@ -194,6 +195,12 @@ class PrologInterface:
                 if DISCARD_ATOM(vname):
                     # print('ignored variable', vname)
                     continue
+
+                ## otherwise “Syntax error: Operator expected” in Prolog
+                # if ' ' in v:
+                #     from pddlgym.structs import TypedEntity
+                #     v = TypedEntity(v.name.replace(' ', ''), v.var_type)
+                #     vname = vname.replace(' ', '')
 
                 if vname in vname_to_v:
                     assert vname_to_v[vname] == v
@@ -394,25 +401,28 @@ print_solutions([H|T]) :- write(H), nl, print_solutions(T).
         timeout_str = "gtimeout" if sys.platform == 'darwin' else "timeout"
         cmd_str = "{} {} swipl {}".format(timeout_str, self._timeout, tmp_name)
 
-        # if self._pred.name in ['closedjoint', 'on']:
+        # if self._pred.name in ['on']:
         #     debug = True
 
         ## -----------------------
         if debug or self.verbose:
             import shutil
             import os
-            from os.path import join, abspath, dirname
+            from os.path import join, abspath, dirname, isdir
             from datetime import datetime
 
             now = datetime.now().strftime("%H%M%S")
-            ROOT_DIR = abspath(join(dirname(__file__), os.pardir))
+            ROOT_DIR = join(dirname(__file__), os.pardir)
 
             if self._pred is not None:  ## find facts
                 name = self._pred.name
             else:  ## find primitive actions
                 name = self._conds[0].predicate.name
             name = f'{now}_{name}.pl'  ## tmp_name[tmp_name.rfind('/')+1:]
-            save_file = join(ROOT_DIR, '..', 'bullet', 'leap', 'temp', name)
+            tmp_dir = abspath(join(ROOT_DIR, '..', 'bullet', 'leap', 'temp'))
+            if not isdir(tmp_dir):
+                os.mkdir(tmp_dir)
+            save_file = join(tmp_dir, name)
             shutil.copy(tmp_name, save_file)
             print(cmd_str.replace(tmp_name, save_file))
         ## -----------------------
