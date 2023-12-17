@@ -59,6 +59,7 @@ def get_successor_state(state, action, domain, raise_error_on_invalid_action=Fal
     selected_operator, assignment = _select_operator(state, action, domain, 
         inference_mode=inference_mode, 
         require_unique_assignment=require_unique_assignment)
+    print("\n\n\tselected operator: ", selected_operator)
 
     # A ground operator was found; execute the ground effects
     if assignment is not None:
@@ -166,7 +167,6 @@ def _check_struct_for_strips(struct):
     if isinstance(struct, LiteralConjunction):
         return all(_check_struct_for_strips(l) for l in struct.literals)
     return False
-
 
 def _compute_new_state_from_lifted_effects(lifted_effects, assignments, new_literals):
     for lifted_effect in lifted_effects:

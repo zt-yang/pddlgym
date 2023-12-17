@@ -572,7 +572,14 @@ def ground_literal(lifted_lit, assignments):
     for v in lifted_lit.variables:
         arg = assignments[v]
         ground_vars.append(arg)
-    return lifted_lit.predicate(*ground_vars)
+    grounded_literal = lifted_lit.predicate(*ground_vars)
+    ## YANG: bug fix, when args = [], it automatically becomes anti somehow
+    if len(ground_vars) == 0:
+        grounded_literal.is_anti = lifted_lit.is_anti
+        grounded_literal.predicate.is_anti = lifted_lit.is_anti
+        grounded_literal.is_negative = lifted_lit.is_negative
+        grounded_literal.predicate.is_negative = lifted_lit.is_negative
+    return grounded_literal
 
 def wrap_goal_literal(x):
     """Append "WANT" to goal literal
